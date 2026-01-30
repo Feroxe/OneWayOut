@@ -24,6 +24,7 @@ export default function ProfileForm() {
         id: user?.userId || "1",
         name: "",
         email: user?.email || "",
+        monthlyIncome: 0,
         createdAt: new Date().toISOString(),
       };
       setProfile(defaultProfile);
