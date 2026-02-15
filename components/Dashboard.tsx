@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 import { UserProfile, Asset } from "@/types";
 import { storage } from "@/lib/storage";
-import { Calendar, Smile, DollarSign, Wallet, ChevronLeft, ChevronRight, HelpCircle, ShoppingCart, FileText, TrendingUp, TrendingDown } from "lucide-react";
+import { Calendar, DollarSign, Wallet, ChevronLeft, ChevronRight, HelpCircle, ShoppingCart, FileText, TrendingUp, TrendingDown, Award } from "lucide-react";
 import Link from "next/link";
-import { DailyMood } from "@/types";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -35,8 +34,7 @@ export default function Dashboard() {
   const [monthlyMinimumPayments, setMonthlyMinimumPayments] = useState(0);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [calendarView, setCalendarView] = useState<"day" | "week" | "month">("month");
-  const [dailyMoods, setDailyMoods] = useState<DailyMood[]>([]);
+  const [calendarView, setCalendarView] = useState<"week" | "month">("week");
   const [selectedDateState, setSelectedDateState] = useState<Date>(new Date());
   const [onboardingData, setOnboardingData] = useState<{
     income: any[];
@@ -69,9 +67,6 @@ export default function Dashboard() {
 
       const loadedAssets = storage.getAssets();
       setAssets(loadedAssets);
-
-      const loadedMoods = storage.getDailyMoods();
-      setDailyMoods(loadedMoods);
 
       // Load onboarding data
       if (typeof window !== "undefined") {
@@ -110,6 +105,19 @@ export default function Dashboard() {
   const monthlyIncome = profile.monthlyIncome || 0;
   const availableAfterExpenses = monthlyIncome - totalExpenses - monthlyMinimumPayments;
   const savingsRate = monthlyIncome > 0 ? (availableAfterExpenses / monthlyIncome) * 100 : 0;
+
+  // Total points from onboarding (same rule as form: count points only when both personal and spouse > 0)
+  const totalPoints = [
+    ...(onboardingData.income || []),
+    ...(onboardingData.expenses || []),
+    ...(onboardingData.assets || []),
+    ...(onboardingData.liabilities || []),
+  ].reduce(
+    (sum, entry) =>
+      sum +
+      ((entry.personal > 0 || entry.spouse > 0 ? (entry.points ?? 0) : 0)),
+    0
+  );
 
   // Calculate progress values for each button
   // Mood: Based on financial health (0-100)
@@ -152,9 +160,7 @@ export default function Dashboard() {
   };
 
   const goToPrevious = () => {
-    if (calendarView === "day") {
-      setCurrentDate(new Date(year, month, currentDate.getDate() - 1));
-    } else if (calendarView === "week") {
+    if (calendarView === "week") {
       setCurrentDate(new Date(year, month, currentDate.getDate() - 7));
     } else {
       setCurrentDate(new Date(year, month - 1, 1));
@@ -162,9 +168,7 @@ export default function Dashboard() {
   };
 
   const goToNext = () => {
-    if (calendarView === "day") {
-      setCurrentDate(new Date(year, month, currentDate.getDate() + 1));
-    } else if (calendarView === "week") {
+    if (calendarView === "week") {
       setCurrentDate(new Date(year, month, currentDate.getDate() + 7));
     } else {
       setCurrentDate(new Date(year, month + 1, 1));
@@ -188,34 +192,6 @@ export default function Dashboard() {
     return weekDays;
   };
 
-  // Get day view hours
-  const getDayHours = () => {
-    const hours = [];
-    for (let i = 0; i < 24; i++) {
-      hours.push(i);
-    }
-    return hours;
-  };
-
-  const getLocalDateString = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const getMoodForDate = (date: Date) => {
-    const dateStr = getLocalDateString(date);
-    return dailyMoods.find(m => m.date === dateStr)?.mood;
-  };
-
-  const handleMoodSelect = (mood: "😊" | "😐" | "😔") => {
-    const dateStr = getLocalDateString(selectedDateState);
-    storage.saveDailyMood({ date: dateStr, mood });
-    // Reload moods
-    setDailyMoods(storage.getDailyMoods());
-  };
-
   const renderMonthView = () => (
     <div className="grid grid-cols-7 gap-2">
       {dayNames.map((day) => (
@@ -225,18 +201,9 @@ export default function Dashboard() {
       ))}
       {getDaysArray().map((day, index) => {
         const date = day ? new Date(year, month, day) : null;
-        const mood = date ? getMoodForDate(date) : null;
         const isSelected = date && date.getDate() === selectedDateState.getDate() &&
           date.getMonth() === selectedDateState.getMonth() &&
           date.getFullYear() === selectedDateState.getFullYear();
-
-        const moodColors = mood === "😊"
-          ? "bg-green-100 dark:bg-green-900/30 border-green-500 ring-2 ring-green-500 ring-opacity-50"
-          : mood === "😐"
-            ? "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 ring-2 ring-yellow-500 ring-opacity-50"
-            : mood === "😔"
-              ? "bg-red-100 dark:bg-red-900/30 border-red-500 ring-2 ring-red-500 ring-opacity-50"
-              : "";
 
         return (
           <div
@@ -249,13 +216,11 @@ export default function Dashboard() {
             }}
             className={`text-center py-2 rounded-full relative cursor-pointer h-[50px] w-[50px] mx-auto flex items-center justify-center transition-all ${day === null
               ? ""
-              : mood
-                ? `${moodColors} font-bold`
-                : isSelected
-                  ? "bg-blue-100 dark:bg-blue-900 border-2 border-blue-600"
-                  : day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-                    ? "bg-blue-50 dark:bg-gray-700 font-semibold border-2 border-transparent"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border-2 border-transparent"
+              : isSelected
+                ? "bg-blue-100 dark:bg-blue-900 border-2 border-blue-600"
+                : day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
+                  ? "bg-blue-50 dark:bg-gray-700 font-semibold border-2 border-transparent"
+                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border-2 border-transparent"
               }`}
           >
             {day && (
@@ -301,43 +266,8 @@ export default function Dashboard() {
     );
   };
 
-  const renderDayView = () => {
-    const hours = getDayHours();
-    const isToday =
-      currentDate.getDate() === today.getDate() &&
-      currentDate.getMonth() === today.getMonth() &&
-      currentDate.getFullYear() === today.getFullYear();
-
-    return (
-      <div className="space-y-2">
-        <div className={`text-center py-3 rounded mb-2 ${isToday ? "bg-blue-600 text-white" : "bg-gray-50 dark:bg-gray-700"
-          }`}>
-          <div className="text-lg font-semibold">{currentDate.getDate()}</div>
-          <div className="text-sm">{monthNames[month]} {year}</div>
-        </div>
-        <div className="max-h-[400px] overflow-y-auto space-y-1">
-          {hours.map((hour) => (
-            <div
-              key={hour}
-              className="flex items-center gap-2 p-2 border-b border-gray-200 dark:border-gray-700"
-            >
-              <div className="text-sm text-gray-600 dark:text-gray-400 w-16">
-                {hour.toString().padStart(2, "0")}:00
-              </div>
-              <div className="flex-1 text-sm text-gray-500 dark:text-gray-400">
-                {/* Empty slot for events */}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   const getViewTitle = () => {
-    if (calendarView === "day") {
-      return `${dayNames[currentDate.getDay()]}, ${monthNames[month]} ${currentDate.getDate()}, ${year}`;
-    } else if (calendarView === "week") {
+    if (calendarView === "week") {
       const weekDays = getWeekDays();
       const start = weekDays[0];
       const end = weekDays[6];
@@ -383,15 +313,6 @@ export default function Dashboard() {
           {/* View Toggle Buttons */}
           <div className="flex gap-2 mb-4">
             <button
-              onClick={() => setCalendarView("day")}
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${calendarView === "day"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                }`}
-            >
-              Day
-            </button>
-            <button
               onClick={() => setCalendarView("week")}
               className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${calendarView === "week"
                 ? "bg-blue-600 text-white"
@@ -421,56 +342,59 @@ export default function Dashboard() {
           {/* Calendar View Content */}
           {calendarView === "month" && renderMonthView()}
           {calendarView === "week" && renderWeekView()}
-          {calendarView === "day" && renderDayView()}
-
-          {/* Calendar Legend */}
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Mood Key</h4>
-            <div className="flex gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-green-100 border-green-500 ring-2 ring-green-500 ring-opacity-50"></div>
-                <span className="text-sm text-gray-600 dark:text-gray-300">Great</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-yellow-100 border-yellow-500 ring-2 ring-yellow-500 ring-opacity-50"></div>
-                <span className="text-sm text-gray-600 dark:text-gray-300">Okay</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-red-100 border-red-500 ring-2 ring-red-500 ring-opacity-50"></div>
-                <span className="text-sm text-gray-600 dark:text-gray-300">Stressed</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Mood Selector Buttons */}
-      <div className="flex flex-col items-center gap-4">
-        <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-          How was your day? ({selectedDateState.toLocaleDateString()})
-        </h3>
-        <div className="flex gap-4">
-          <button
-            onClick={() => handleMoodSelect("😊")}
-            className={`p-4 rounded-full text-4xl hover:scale-110 transition-transform ${getMoodForDate(selectedDateState) === "😊" ? "bg-green-100 ring-4 ring-green-400" : "bg-gray-100 dark:bg-gray-800 hover:bg-green-50"}`}
-            title="Great"
-          >
-            😊
+      {/* Mood, Earn, Budget Buttons */}
+      <div className="flex gap-2 mt-4">
+        <button
+          type="button"
+          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+        >
+          Mood
+        </button>
+        <button
+          type="button"
+          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+        >
+          Earn
+        </button>
+        <button
+          type="button"
+          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+        >
+          Budget
+        </button>
+      </div>
+
+      {/* Three Action Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Help me Button */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg hover:from-orange-600 hover:to-amber-600 transition-all">
+            <HelpCircle className="h-6 w-6" />
+            <span className="text-lg font-semibold">Help me</span>
           </button>
-          <button
-            onClick={() => handleMoodSelect("😐")}
-            className={`p-4 rounded-full text-4xl hover:scale-110 transition-transform ${getMoodForDate(selectedDateState) === "😐" ? "bg-yellow-100 ring-4 ring-yellow-400" : "bg-gray-100 dark:bg-gray-800 hover:bg-yellow-50"}`}
-            title="Okay"
-          >
-            😐
-          </button>
-          <button
-            onClick={() => handleMoodSelect("😔")}
-            className={`p-4 rounded-full text-4xl hover:scale-110 transition-transform ${getMoodForDate(selectedDateState) === "😔" ? "bg-red-100 ring-4 ring-red-400" : "bg-gray-100 dark:bg-gray-800 hover:bg-red-50"}`}
-            title="Stressed"
-          >
-            😔
-          </button>
+        </div>
+
+        {/* Spend Button */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          <Link href="/expenses" className="block">
+            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-lg hover:from-red-600 hover:to-rose-600 transition-all">
+              <ShoppingCart className="h-6 w-6" />
+              <span className="text-lg font-semibold">Spend</span>
+            </button>
+          </Link>
+        </div>
+
+        {/* Review debt Button */}
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          <Link href="/debts" className="block">
+            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-indigo-500 to-violet-500 text-white rounded-lg hover:from-indigo-600 hover:to-violet-600 transition-all">
+              <FileText className="h-6 w-6" />
+              <span className="text-lg font-semibold">Review debt</span>
+            </button>
+          </Link>
         </div>
       </div>
 
@@ -530,6 +454,18 @@ export default function Dashboard() {
                 <Wallet className="h-8 w-8 text-red-600" />
               </div>
             </div>
+
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Points</p>
+                  <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                    {totalPoints.toLocaleString()}
+                  </p>
+                </div>
+                <Award className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
+              </div>
+            </div>
           </div>
 
           {/* Net Worth Card */}
@@ -571,36 +507,7 @@ export default function Dashboard() {
 
 
 
-      {/* Three Action Buttons */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Help me Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg hover:from-orange-600 hover:to-amber-600 transition-all">
-            <HelpCircle className="h-6 w-6" />
-            <span className="text-lg font-semibold">Help me</span>
-          </button>
-        </div>
-
-        {/* Spend Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <Link href="/expenses" className="block">
-            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-lg hover:from-red-600 hover:to-rose-600 transition-all">
-              <ShoppingCart className="h-6 w-6" />
-              <span className="text-lg font-semibold">Spend</span>
-            </button>
-          </Link>
-        </div>
-
-        {/* Review debt Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <Link href="/debts" className="block">
-            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-indigo-500 to-violet-500 text-white rounded-lg hover:from-indigo-600 hover:to-violet-600 transition-all">
-              <FileText className="h-6 w-6" />
-              <span className="text-lg font-semibold">Review debt</span>
-            </button>
-          </Link>
-        </div>
-      </div>
+      
 
       {/* Financial Profile Details */}
       {profile.onboardingCompleted && (

@@ -211,7 +211,7 @@ export default function OnboardingForm() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const totalSteps = 5;
+  const totalSteps = 6;
 
   const updateFormData = (field: keyof UserProfile, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -463,7 +463,7 @@ export default function OnboardingForm() {
       ...formData,
       onboardingCompleted: true,
       monthlyIncome: formData.lastIncome || profile.monthlyIncome,
-      savingsGoal: formData.savingGoals || profile.savingsGoal,
+      savingsGoal: formData.savingsGoal ?? formData.savingGoals ?? profile.savingsGoal,
     };
 
     storage.saveProfile(updatedProfile);
@@ -508,6 +508,8 @@ export default function OnboardingForm() {
         return formData.capital !== undefined && formData.capital >= 0;
       case 5:
         return formData.debts !== undefined && formData.debts >= 0;
+      case 6:
+        return formData.savingsGoal !== undefined && formData.savingsGoal >= 0;
       default:
         return false;
     }
@@ -603,7 +605,7 @@ export default function OnboardingForm() {
                         <td className="py-2 px-2 text-sm text-gray-900 dark:text-white font-medium whitespace-normal">
                           N${((entry.personal || 0) + (entry.spouse || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 && entry.spouse > 0) ? entry.points : 0}</td>
+                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -626,7 +628,7 @@ export default function OnboardingForm() {
                   <div className="text-center">
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Points</span>
                     <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
-                      {incomeEntries.reduce((sum, entry) => sum + ((entry.personal > 0 && entry.spouse > 0) ? entry.points : 0), 0)}
+                      {incomeEntries.reduce((sum, entry) => sum + ((entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0), 0)}
                     </div>
                   </div>
                   <div className="text-center">
@@ -655,7 +657,7 @@ export default function OnboardingForm() {
         const totalFixedExpenses = expenseEntries.filter(e => e.expenseType === 'Fixed').reduce((sum, entry) => sum + (entry.total || 0), 0);
         const totalVariableExpenses = expenseEntries.filter(e => e.expenseType === 'Variable').reduce((sum, entry) => sum + (entry.total || 0), 0);
         const totalExpenses = expenseEntries.reduce((sum, entry) => sum + (entry.total || 0), 0);
-        const totalExpensePoints = expenseEntries.reduce((sum, entry) => sum + ((entry.personal > 0 && entry.spouse > 0) ? entry.points : 0), 0);
+        const totalExpensePoints = expenseEntries.reduce((sum, entry) => sum + ((entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0), 0);
         return (
           <div className="space-y-6">
             <div className="text-center">
@@ -718,7 +720,7 @@ export default function OnboardingForm() {
                         <td className="py-2 px-2 text-sm text-gray-900 dark:text-white font-medium whitespace-normal">
                           N${((entry.personal || 0) + (entry.spouse || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 && entry.spouse > 0) ? entry.points : 0}</td>
+                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -770,7 +772,7 @@ export default function OnboardingForm() {
         const totalCapital = assetEntries.reduce((sum, entry) => sum + entry.total, 0);
         const totalPersonal = assetEntries.reduce((sum, entry) => sum + entry.personal, 0);
         const totalSpouse = assetEntries.reduce((sum, entry) => sum + entry.spouse, 0);
-        const totalPoints = assetEntries.reduce((sum, entry) => sum + ((entry.personal > 0 && entry.spouse > 0) ? entry.points : 0), 0);
+        const totalPoints = assetEntries.reduce((sum, entry) => sum + ((entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0), 0);
         return (
           <div className="space-y-6">
             <div className="text-center">
@@ -832,7 +834,7 @@ export default function OnboardingForm() {
                         <td className="py-2 px-2 text-sm text-gray-900 dark:text-white font-medium whitespace-normal">
                           N${entry.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 && entry.spouse > 0) ? entry.points : 0}</td>
+                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0}</td>
                         <td className="py-2 px-2 whitespace-normal">
                           <input
                             type="number"
@@ -900,7 +902,7 @@ export default function OnboardingForm() {
         const totalLiabilities = liabilityEntries.reduce((sum, entry) => sum + entry.total, 0);
         const totalPersonalLiabilities = liabilityEntries.reduce((sum, entry) => sum + entry.personal, 0);
         const totalSpouseLiabilities = liabilityEntries.reduce((sum, entry) => sum + entry.spouse, 0);
-        const totalLiabilityPoints = liabilityEntries.reduce((sum, entry) => sum + ((entry.personal > 0 && entry.spouse > 0) ? entry.points : 0), 0);
+        const totalLiabilityPoints = liabilityEntries.reduce((sum, entry) => sum + ((entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0), 0);
         return (
           <div className="space-y-6">
             <div className="text-center">
@@ -964,7 +966,7 @@ export default function OnboardingForm() {
                         <td className="py-2 px-2 text-sm text-gray-900 dark:text-white font-medium whitespace-normal">
                           N${entry.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 && entry.spouse > 0) ? entry.points : 0}</td>
+                        <td className="py-2 px-2 text-sm text-gray-900 dark:text-white whitespace-normal">{(entry.personal > 0 || entry.spouse > 0) ? (entry.points ?? 0) : 0}</td>
                         <td className="py-2 px-2 whitespace-normal">
                           <input
                             type="number"
@@ -1023,6 +1025,36 @@ export default function OnboardingForm() {
                 <p className="text-sm text-red-800 dark:text-red-200">
                   Please enter the interest rate you are currently paying to the loan or credit facility. This to help ensure you are not been exploited and to make appropriate recommendations in the future.
                 </p>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 6:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mb-4">
+                <DollarSign className="h-8 w-8 text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Monthly savings goal</h2>
+              <p className="text-gray-600 dark:text-gray-400">How much would you like to save each month?</p>
+            </div>
+            <div className="flex justify-center">
+              <div className="w-full max-w-sm">
+                <label htmlFor="savingsGoal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Amount (N$)
+                </label>
+                <input
+                  id="savingsGoal"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.savingsGoal ?? ""}
+                  onChange={(e) => updateFormData("savingsGoal", parseFloat(e.target.value) || 0)}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-lg"
+                  placeholder="0.00"
+                />
               </div>
             </div>
           </div>
