@@ -12,21 +12,15 @@ export default function AuthRedirect({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      // Don't redirect if user is on registration page - let them complete the 8-step form
-      if (pathname === "/register") {
-        return;
-      }
-      
-      // Check if onboarding is completed
-      const profile = storage.getProfile();
-      if (profile && profile.onboardingCompleted) {
-        router.push("/");
-      } else {
-        // Only redirect to onboarding if not on register page
-        if (pathname !== "/register") {
+      if (pathname === "/register") return;
+
+      storage.getProfile().then((profile) => {
+        if (profile && profile.onboardingCompleted) {
+          router.push("/");
+        } else if (pathname !== "/register") {
           router.push("/onboarding");
         }
-      }
+      });
     }
   }, [isAuthenticated, isLoading, router, pathname]);
 

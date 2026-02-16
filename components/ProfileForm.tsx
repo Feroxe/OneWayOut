@@ -14,35 +14,36 @@ export default function ProfileForm() {
   const { user } = useAuth();
 
   useEffect(() => {
-    const savedProfile = storage.getProfile();
-    if (savedProfile) {
-      setProfile(savedProfile);
-    } else {
-      // Create default profile with user's email
-      const session = storage.getSession();
-      const defaultProfile: UserProfile = {
-        id: user?.userId || "1",
-        name: "",
-        email: user?.email || "",
-        monthlyIncome: 0,
-        createdAt: new Date().toISOString(),
-      };
-      setProfile(defaultProfile);
-    }
-    setIsLoading(false);
+    let cancelled = false;
+    (async () => {
+      const savedProfile = await storage.getProfile();
+      if (cancelled) return;
+      if (savedProfile) {
+        setProfile(savedProfile);
+      } else {
+        const defaultProfile: UserProfile = {
+          id: user?.userId || "1",
+          name: "",
+          email: user?.email || "",
+          monthlyIncome: 0,
+          createdAt: new Date().toISOString(),
+        };
+        setProfile(defaultProfile);
+      }
+      setIsLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
 
     setIsSaving(true);
-    storage.saveProfile(profile);
-    setTimeout(() => {
-      setIsSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }, 500);
+    await storage.saveProfile(profile);
+    setIsSaving(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const handleChange = (field: keyof UserProfile, value: string | number) => {

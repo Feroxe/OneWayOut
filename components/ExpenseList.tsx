@@ -51,25 +51,38 @@ export default function ExpenseList() {
   const [onboardingExpenses, setOnboardingExpenses] = useState<any[]>([]);
 
   useEffect(() => {
-    setExpenses(storage.getExpenses());
-    if (typeof window !== "undefined") {
-      try {
-        const expenses = JSON.parse(localStorage.getItem('onboarding_expenses') || '[]');
-        setOnboardingExpenses(expenses);
-      } catch (e) {
-        console.error("Error loading onboarding expenses", e);
+    (async () => {
+      const [expenseList, budgetExpenses, onboarding] = await Promise.all([
+        storage.getExpenses(),
+        storage.getBudgetExpenses(),
+        storage.getOnboardingData(),
+      ]);
+      setExpenses(expenseList);
+      // Prefer budget_expenses table; fall back to onboarding_data
+      if (budgetExpenses.length > 0) {
+        setOnboardingExpenses(budgetExpenses.map((e) => ({
+          expenseCategory: e.category,
+          expenseType: e.type,
+          name: e.name,
+          personal: e.personal,
+          spouse: e.spouse,
+          total: e.personal + e.spouse,
+          points: e.points,
+        })));
+      } else {
+        setOnboardingExpenses(onboarding.expenses);
       }
-    }
+    })();
   }, []);
 
-  const handleAddExpense = (e: React.FormEvent) => {
+  const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     const newExpense: Expense = {
       ...formData,
       id: Date.now().toString(),
     };
-    storage.addExpense(newExpense);
-    setExpenses(storage.getExpenses());
+    await storage.addExpense(newExpense);
+    setExpenses(await storage.getExpenses());
     setFormData({
       title: "",
       amount: 0,
@@ -80,10 +93,10 @@ export default function ExpenseList() {
     setShowForm(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this expense?")) {
-      storage.deleteExpense(id);
-      setExpenses(storage.getExpenses());
+      await storage.deleteExpense(id);
+      setExpenses(await storage.getExpenses());
     }
   };
 

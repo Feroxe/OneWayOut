@@ -10,10 +10,11 @@ export default function OnboardingPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const profile = storage.getProfile();
-    if (profile && profile.onboardingCompleted) {
-      router.push("/");
-    }
+    storage.getProfile().then((profile) => {
+      if (profile && profile.onboardingCompleted) {
+        router.push("/");
+      }
+    });
   }, [router]);
 
   return (

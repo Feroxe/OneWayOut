@@ -22,18 +22,18 @@ export default function DebtList() {
   });
 
   useEffect(() => {
-    setDebts(storage.getDebts());
+    storage.getDebts().then(setDebts);
   }, []);
 
-  const handleAddDebt = (e: React.FormEvent) => {
+  const handleAddDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     const newDebt: Debt = {
       ...formData,
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
     };
-    storage.addDebt(newDebt);
-    setDebts(storage.getDebts());
+    await storage.addDebt(newDebt);
+    setDebts(await storage.getDebts());
     setFormData({
       name: "",
       totalAmount: 0,
@@ -46,20 +46,20 @@ export default function DebtList() {
     setShowForm(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this debt?")) {
-      storage.deleteDebt(id);
-      setDebts(storage.getDebts());
+      await storage.deleteDebt(id);
+      setDebts(await storage.getDebts());
     }
   };
 
-  const handlePayment = (id: string, amount: number) => {
+  const handlePayment = async (id: string, amount: number) => {
     const debt = debts.find((d) => d.id === id);
     if (!debt) return;
 
     const newRemaining = Math.max(0, debt.remainingAmount - amount);
-    storage.updateDebt(id, { remainingAmount: newRemaining });
-    setDebts(storage.getDebts());
+    await storage.updateDebt(id, { remainingAmount: newRemaining });
+    setDebts(await storage.getDebts());
   };
 
   const totalDebt = debts.reduce((sum, debt) => sum + debt.remainingAmount, 0);

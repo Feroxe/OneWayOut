@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserProfile } from "@/types";
+import { UserProfile, Asset, AssetCategory, Income, IncomeCategory, RegistrationExpense, ExpenseCategory } from "@/types";
 import { storage } from "@/lib/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChevronLeft, ChevronRight, Check, DollarSign, Plus } from "lucide-react";
@@ -436,25 +436,19 @@ export default function OnboardingForm() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!user) return;
 
-    // Get user details to retrieve name
-    const userData = storage.getUserByEmail(user.email || "");
-
-    // Get existing profile or create new one
-    let profile = storage.getProfile();
+    // Get existing profile or create new one (name comes from Supabase profile/trigger)
+    let profile = await storage.getProfile();
     if (!profile) {
       profile = {
         id: user.userId,
-        name: userData?.name || "",
+        name: "",
         email: user.email || "",
         monthlyIncome: 0,
         createdAt: new Date().toISOString(),
       };
-    } else if (!profile.name && userData?.name) {
-      // Update name if not set
-      profile.name = userData.name;
     }
 
     // Update profile with onboarding data
@@ -466,20 +460,71 @@ export default function OnboardingForm() {
       savingsGoal: formData.savingsGoal ?? formData.savingGoals ?? profile.savingsGoal,
     };
 
-    storage.saveProfile(updatedProfile);
+    await storage.saveProfile(updatedProfile);
+    await storage.saveOnboardingData({
+      income: incomeEntries,
+      expenses: expenseEntries,
+      assets: assetEntries,
+      liabilities: liabilityEntries,
+    });
 
-    // Save detailed entries to localStorage
-    localStorage.setItem('onboarding_assets', JSON.stringify(assetEntries));
-    localStorage.setItem('onboarding_liabilities', JSON.stringify(liabilityEntries));
-    localStorage.setItem('onboarding_income', JSON.stringify(incomeEntries));
-    localStorage.setItem('onboarding_expenses', JSON.stringify(expenseEntries));
+    // Sync onboarding income to the income table
+    const incomeToSave: Income[] = incomeEntries
+      .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
+      .map((e, i) => ({
+        id: `onboarding-income-${Date.now()}-${i}`,
+        category: e.incomeType as IncomeCategory,
+        type: (e.source === "Fixed" || e.source === "Variable" ? e.source : "Variable") as Income["type"],
+        name: (e.name && e.name.trim()) || e.incomeType,
+        personal: e.personal,
+        spouse: e.spouse,
+        points: e.points,
+        editable: true,
+      }));
+    if (incomeToSave.length > 0) {
+      await storage.saveIncome(incomeToSave);
+    }
+
+    // Sync onboarding expense entries to the budget_expenses table
+    const budgetExpensesToSave: RegistrationExpense[] = expenseEntries
+      .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
+      .map((e, i) => ({
+        id: `onboarding-expense-${Date.now()}-${i}`,
+        category: e.expenseCategory as ExpenseCategory,
+        type: (e.expenseType === "Fixed" || e.expenseType === "Variable" ? e.expenseType : "Variable") as RegistrationExpense["type"],
+        name: (e.name && e.name.trim()) || e.expenseCategory,
+        personal: e.personal,
+        spouse: e.spouse,
+        points: e.points,
+        editable: true,
+      }));
+    if (budgetExpensesToSave.length > 0) {
+      await storage.saveBudgetExpenses(budgetExpensesToSave);
+    }
+
+    // Sync onboarding assets to the assets table (so they show on Dashboard and /assets)
+    const assetsToSave: Asset[] = assetEntries
+      .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
+      .map((e, i) => ({
+        id: `onboarding-asset-${Date.now()}-${i}`,
+        category: e.expenses as AssetCategory,
+        type: e.expenseType as "Fixed Assets" | "Current Assets",
+        name: (e.name && e.name.trim()) || e.expenses,
+        personal: e.personal,
+        spouse: e.spouse,
+        points: e.points,
+        interestRate: e.interestRate ?? 0,
+        editable: true,
+      }));
+    if (assetsToSave.length > 0) {
+      await storage.saveAssets(assetsToSave);
+    }
 
     // If there are debts, create debt entries
     if (formData.debts && formData.debts > 0) {
-      const existingDebts = storage.getDebts();
+      const existingDebts = await storage.getDebts();
       if (existingDebts.length === 0) {
-        // Create a default debt entry
-        storage.addDebt({
+        await storage.addDebt({
           id: `debt-${Date.now()}`,
           name: "Initial Debt",
           totalAmount: formData.debts,

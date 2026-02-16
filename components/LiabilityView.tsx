@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { storage } from "@/lib/storage";
 import { CreditCard, AlertCircle, Info, TrendingDown, Award, BarChart3, PieChart } from "lucide-react";
 import {
   Chart as ChartJS,
@@ -28,14 +29,7 @@ export default function LiabilityView() {
     const [liabilityData, setLiabilityData] = useState<any[]>([]);
 
     useEffect(() => {
-        if (typeof window !== "undefined") {
-            try {
-                const liabilities = JSON.parse(localStorage.getItem('onboarding_liabilities') || '[]');
-                setLiabilityData(liabilities);
-            } catch (e) {
-                console.error("Error loading liability data", e);
-            }
-        }
+        storage.getOnboardingData().then((d) => setLiabilityData(d.liabilities));
     }, []);
 
     const totalPersonal = liabilityData.reduce((sum, item) => sum + (item.personal || 0), 0);

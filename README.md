@@ -47,7 +47,7 @@ A comprehensive Next.js application for managing your personal finances, trackin
 - **Lucide React** - Beautiful icons
 - **date-fns** - Date formatting utilities
 - **@react-oauth/google** - Google OAuth integration
-- **localStorage** - Client-side data persistence
+- **Supabase** - Auth, database, and data persistence
 
 ## Getting Started
 
@@ -62,7 +62,18 @@ A comprehensive Next.js application for managing your personal finances, trackin
 npm install
 ```
 
-2. (Optional) Set up Google OAuth:
+2. **Set up Supabase** (required for auth and data):
+   - Create a project at [supabase.com](https://supabase.com)
+   - In the Supabase dashboard, go to **SQL Editor** and run the migration in `supabase/migrations/20250217000000_initial_schema.sql`
+   - Go to **Project Settings** → **API** and copy the project URL and anon (public) key
+   - Create a `.env.local` file and add:
+     ```
+     NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+     NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+     ```
+   - (Optional) In **Authentication** → **Providers**, disable "Confirm email" if you want immediate sign-in without verification.
+
+3. (Optional) Set up Google OAuth:
    - Create a `.env.local` file in the root directory
    - Get your Google OAuth Client ID from [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
    - Add the following to `.env.local`:
@@ -112,14 +123,17 @@ onewayout/
 │   ├── FinancialInsights.tsx
 │   └── Navigation.tsx
 ├── lib/                  # Utility functions
-│   └── storage.ts        # localStorage management
+│   ├── storage.ts        # Supabase-backed data layer
+│   └── supabase.ts       # Supabase client
+├── supabase/
+│   └── migrations/       # SQL schema and RLS
 └── types/                # TypeScript type definitions
     └── index.ts
 ```
 
 ## Data Storage
 
-The app uses browser localStorage to persist data. All your financial information is stored locally in your browser and never sent to any server.
+The app uses **Supabase** for authentication and data. User accounts, profiles, expenses, debts, assets, daily moods, and onboarding data are stored in Supabase with row-level security so each user only sees their own data. Set up a Supabase project and run the migration (see Getting Started) before using the app.
 
 ## Features in Detail
 

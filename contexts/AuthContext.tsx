@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { AuthSession, User } from "@/types";
-import { storage } from "@/lib/storage";
+import { AuthSession } from "@/types";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -17,110 +17,101 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function toAuthSession(session: { user: { id: string; email?: string }; expires_at?: number } | null): AuthSession | null {
+  if (!session?.user) return null;
+  return {
+    userId: session.user.id,
+    email: session.user.email ?? "",
+    expiresAt: session.expires_at ? session.expires_at * 1000 : 0,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    // Check for existing session on mount
-    const session = storage.getSession();
-    setUser(session);
-    setIsLoading(false);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(toAuthSession(session));
+      setIsLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(toAuthSession(session));
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isSupabaseConfigured()) {
+      return { success: false, error: "Supabase not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local (same folder as package.json), then restart the dev server." };
+    }
     try {
-      const user = storage.getUserByEmail(email);
-      if (!user) {
-        return { success: false, error: "User not found. Please register first." };
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        return { success: false, error: error.message === "Invalid login credentials" ? "Invalid email or password." : error.message };
       }
-
-      if (user.password !== password) {
-        return { success: false, error: "Invalid password." };
-      }
-
-      // Create session (expires in 7 days)
-      const session: AuthSession = {
-        userId: user.id,
-        email: user.email,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-      };
-
-      storage.saveSession(session);
-      setUser(session);
+      setUser(toAuthSession(data.session));
       return { success: true };
-    } catch (error) {
-      return { success: false, error: "An error occurred during login." };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred during login.";
+      const isNetwork = msg.toLowerCase().includes("fetch") || msg.toLowerCase().includes("network");
+      return {
+        success: false,
+        error: isNetwork
+          ? "Cannot reach Supabase. Check .env.local (NEXT_PUBLIC_SUPABASE_URL and anon key) and that the project is not paused."
+          : msg,
+      };
     }
   };
 
   const register = async (name: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isSupabaseConfigured()) {
+      return { success: false, error: "Supabase not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local (same folder as package.json), then restart the dev server." };
+    }
     try {
-      // Check if user already exists
-      const existingUser = storage.getUserByEmail(email);
-      if (existingUser) {
-        return { success: false, error: "Email already registered. Please login instead." };
-      }
-
-      // Validate password length
       if (password.length < 6) {
         return { success: false, error: "Password must be at least 6 characters long." };
       }
-
-      // Create new user
-      const newUser: User = {
-        id: Date.now().toString(),
+      const { data, error } = await supabase.auth.signUp({
         email,
-        password, // In production, hash this password
-        name,
-        createdAt: new Date().toISOString(),
-      };
-
-      storage.addUser(newUser);
-
-      // Automatically log in after registration
-      const session: AuthSession = {
-        userId: newUser.id,
-        email: newUser.email,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-      };
-
-      storage.saveSession(session);
-      setUser(session);
+        password,
+        options: { data: { name } },
+      });
+      if (error) {
+        const isRateLimit = error.message.toLowerCase().includes("too many") || error.message.includes("429");
+        return {
+          success: false,
+          error: isRateLimit
+            ? "Too many signup attempts. Please wait a few minutes and try again."
+            : error.message,
+        };
+      }
+      if (data.session) {
+        setUser(toAuthSession(data.session));
+      }
       return { success: true };
-    } catch (error) {
-      return { success: false, error: "An error occurred during registration." };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred during registration.";
+      const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("too many");
+      const isNetwork = msg.toLowerCase().includes("fetch") || msg.toLowerCase().includes("network");
+      return {
+        success: false,
+        error: isRateLimit
+          ? "Too many signup attempts. Please wait a few minutes and try again."
+          : isNetwork
+            ? "Cannot reach Supabase. Check .env.local and that your Supabase project is not paused."
+            : msg,
+      };
     }
   };
 
-  const loginWithGoogle = async (googleUser: { email: string; name: string; picture?: string }): Promise<{ success: boolean; error?: string }> => {
+  const loginWithGoogle = async (_googleUser: { email: string; name: string; picture?: string }): Promise<{ success: boolean; error?: string }> => {
     try {
-      // Check if user already exists
-      let user = storage.getUserByEmail(googleUser.email);
-      
-      if (!user) {
-        // Create new user automatically for Google login
-        const newUser: User = {
-          id: Date.now().toString(),
-          email: googleUser.email,
-          password: "", // No password for Google users
-          name: googleUser.name,
-          createdAt: new Date().toISOString(),
-        };
-        storage.addUser(newUser);
-        user = newUser;
-      }
-
-      // Create session (expires in 7 days)
-      const session: AuthSession = {
-        userId: user.id,
-        email: user.email,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-      };
-
-      storage.saveSession(session);
-      setUser(session);
+      const { error } = await supabase.auth.signInWithOAuth({ provider: "google" });
+      if (error) return { success: false, error: error.message };
       return { success: true };
     } catch (error) {
       return { success: false, error: "An error occurred during Google login." };
@@ -128,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    storage.clearSession();
+    supabase.auth.signOut();
     setUser(null);
     router.push("/login");
   };
@@ -157,4 +148,3 @@ export function useAuth() {
   }
   return context;
 }
-

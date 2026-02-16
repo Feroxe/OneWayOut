@@ -107,33 +107,26 @@ export default function RegisterForm() {
     setError("");
 
     try {
-      // Get current user from session
-      const session = storage.getSession();
+      const session = await storage.getSession();
       if (!session) {
         setError("Session expired. Please try again.");
-    setIsLoading(false);
+        setIsLoading(false);
         return;
       }
 
-      // Get user details
-      const userData = storage.getUserByEmail(session.email || "");
-      
-      // Get existing profile or create new one
-      let profile = storage.getProfile();
+      let profile = await storage.getProfile();
       if (!profile) {
         profile = {
           id: session.userId,
-          name: userData?.name || name,
+          name: name,
           email: session.email || email,
           monthlyIncome: 0,
           createdAt: new Date().toISOString(),
         };
       }
 
-      // Calculate total capital from step 3 assets
       const totalCapital = step2Assets.reduce((sum, asset) => sum + (asset.personal || 0) + (asset.spouse || 0), 0);
 
-      // Update profile with onboarding data
       const updatedProfile: UserProfile = {
         ...profile,
         ...formData,
@@ -143,22 +136,20 @@ export default function RegisterForm() {
         savingsGoal: formData.savingGoals || profile.savingsGoal,
       };
 
-      storage.saveProfile(updatedProfile);
+      await storage.saveProfile(updatedProfile);
 
-      // Save step 3 assets
       if (step2Assets.length > 0) {
-        step2Assets.forEach(asset => {
+        for (const asset of step2Assets) {
           if (asset.name.trim() !== "") {
-            storage.addAsset(asset);
+            await storage.addAsset(asset);
           }
-        });
+        }
       }
 
-      // If there are debts, create debt entries
       if (formData.debts && formData.debts > 0) {
-        const existingDebts = storage.getDebts();
+        const existingDebts = await storage.getDebts();
         if (existingDebts.length === 0) {
-          storage.addDebt({
+          await storage.addDebt({
             id: `debt-${Date.now()}`,
             name: "Initial Debt",
             totalAmount: formData.debts,
@@ -175,6 +166,7 @@ export default function RegisterForm() {
       router.push("/");
     } catch (err) {
       setError("An error occurred. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };

@@ -8,10 +8,11 @@ export default function OnboardingCheck({ children }: { children: React.ReactNod
   const router = useRouter();
 
   useEffect(() => {
-    const profile = storage.getProfile();
-    if (!profile || !profile.onboardingCompleted) {
-      router.push("/onboarding");
-    }
+    storage.getProfile().then((profile) => {
+      if (!profile || !profile.onboardingCompleted) {
+        router.push("/onboarding");
+      }
+    });
   }, [router]);
 
   return <>{children}</>;

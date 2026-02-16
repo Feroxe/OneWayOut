@@ -44,11 +44,18 @@ export default function Dashboard() {
   }>({ income: [], expenses: [], assets: [], liabilities: [] });
 
   useEffect(() => {
-    const loadData = () => {
-      const userProfile = storage.getProfile();
+    const loadData = async () => {
+      const [userProfile, expenses, debts, loadedAssets, onboarding] = await Promise.all([
+        storage.getProfile(),
+        storage.getExpenses(),
+        storage.getDebts(),
+        storage.getAssets(),
+        storage.getOnboardingData(),
+      ]);
       setProfile(userProfile);
+      setAssets(loadedAssets);
+      setOnboardingData(onboarding);
 
-      const expenses = storage.getExpenses();
       const currentMonth = new Date().getMonth();
       const currentYear = new Date().getFullYear();
       const monthlyExpenses = expenses
@@ -59,31 +66,13 @@ export default function Dashboard() {
         .reduce((sum, exp) => sum + exp.amount, 0);
       setTotalExpenses(monthlyExpenses);
 
-      const debts = storage.getDebts();
       const totalDebtAmount = debts.reduce((sum, debt) => sum + debt.remainingAmount, 0);
       const totalMinPayments = debts.reduce((sum, debt) => sum + debt.minimumPayment, 0);
       setTotalDebt(totalDebtAmount);
       setMonthlyMinimumPayments(totalMinPayments);
-
-      const loadedAssets = storage.getAssets();
-      setAssets(loadedAssets);
-
-      // Load onboarding data
-      if (typeof window !== "undefined") {
-        try {
-          const income = JSON.parse(localStorage.getItem('onboarding_income') || '[]');
-          const expenses = JSON.parse(localStorage.getItem('onboarding_expenses') || '[]');
-          const assets = JSON.parse(localStorage.getItem('onboarding_assets') || '[]');
-          const liabilities = JSON.parse(localStorage.getItem('onboarding_liabilities') || '[]');
-          setOnboardingData({ income, expenses, assets, liabilities });
-        } catch (e) {
-          console.error("Error loading onboarding data", e);
-        }
-      }
     };
 
     loadData();
-    // Refresh data every 5 seconds
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
   }, []);

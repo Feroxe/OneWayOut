@@ -29,14 +29,23 @@ export default function IncomeView() {
     const [incomeData, setIncomeData] = useState<any[]>([]);
 
     useEffect(() => {
-        if (typeof window !== "undefined") {
-            try {
-                const income = JSON.parse(localStorage.getItem('onboarding_income') || '[]');
-                setIncomeData(income);
-            } catch (e) {
-                console.error("Error loading income data", e);
+        (async () => {
+            const fromTable = await storage.getIncome();
+            if (fromTable.length > 0) {
+                setIncomeData(fromTable.map((i) => ({
+                    incomeType: i.category,
+                    source: i.type,
+                    name: i.name,
+                    personal: i.personal,
+                    spouse: i.spouse,
+                    total: i.personal + i.spouse,
+                    points: i.points,
+                })));
+            } else {
+                const d = await storage.getOnboardingData();
+                setIncomeData(d.income);
             }
-        }
+        })();
     }, []);
 
     const totalPersonal = incomeData.reduce((sum, item) => sum + (item.personal || 0), 0);

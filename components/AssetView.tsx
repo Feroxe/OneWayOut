@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { storage } from "@/lib/storage";
 import { TrendingUp, Info, DollarSign, Award, BarChart3, PieChart } from "lucide-react";
 import {
   Chart as ChartJS,
@@ -28,14 +29,7 @@ export default function AssetView() {
     const [assetData, setAssetData] = useState<any[]>([]);
 
     useEffect(() => {
-        if (typeof window !== "undefined") {
-            try {
-                const assets = JSON.parse(localStorage.getItem('onboarding_assets') || '[]');
-                setAssetData(assets);
-            } catch (e) {
-                console.error("Error loading asset data", e);
-            }
-        }
+        storage.getOnboardingData().then((d) => setAssetData(d.assets));
     }, []);
 
     const totalPersonal = assetData.reduce((sum, item) => sum + (item.personal || 0), 0);

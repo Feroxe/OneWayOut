@@ -18,14 +18,15 @@ export default function FinancialInsights() {
   const [tips, setTips] = useState<Tip[]>([]);
 
   useEffect(() => {
-    const userProfile = storage.getProfile();
-    setProfile(userProfile);
+    (async () => {
+      const userProfile = await storage.getProfile();
+      setProfile(userProfile);
 
-    const expenses = storage.getExpenses();
-    const debts = storage.getDebts();
-    const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const totalDebt = debts.reduce((sum, debt) => sum + debt.remainingAmount, 0);
-    const monthlyIncome = userProfile?.monthlyIncome || 0;
+      const expenses = await storage.getExpenses();
+      const debts = await storage.getDebts();
+      const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const totalDebt = debts.reduce((sum, debt) => sum + debt.remainingAmount, 0);
+      const monthlyIncome = userProfile?.monthlyIncome || 0;
 
     const generatedTips: Tip[] = [];
 
@@ -120,6 +121,7 @@ export default function FinancialInsights() {
     });
 
     setTips(generatedTips);
+    })();
   }, []);
 
   const categories = Array.from(new Set(tips.map((tip) => tip.category)));
