@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { UserProfile, Asset } from "@/types";
 import { storage } from "@/lib/storage";
-import { Calendar, DollarSign, Wallet, ChevronLeft, ChevronRight, HelpCircle, ShoppingCart, FileText, TrendingUp, TrendingDown, Award } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Calendar, DollarSign, Wallet, ChevronLeft, ChevronRight, HelpCircle, ShoppingCart, FileText, TrendingUp, TrendingDown, Smile, Search, User, ChevronDown, LogOut } from "lucide-react";
 import Link from "next/link";
 import {
   Chart as ChartJS,
@@ -42,19 +43,96 @@ export default function Dashboard() {
     assets: any[];
     liabilities: any[];
   }>({ income: [], expenses: [], assets: [], liabilities: [] });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  const { logout } = useAuth();
 
   useEffect(() => {
     const loadData = async () => {
-      const [userProfile, expenses, debts, loadedAssets, onboarding] = await Promise.all([
-        storage.getProfile(),
-        storage.getExpenses(),
-        storage.getDebts(),
-        storage.getAssets(),
-        storage.getOnboardingData(),
-      ]);
+      // Single batched call: one auth check + 8 parallel table reads (faster than 8 separate getUserId + fetch)
+      const data = await storage.getDashboardData();
+      if (!data) {
+        setIsDashboardLoading(false);
+        return;
+      }
+
+      const { profile: userProfile, expenses, debts, assets: loadedAssets, income: incomeRows, budgetExpenses: budgetExpenseRows, liabilities: liabilityRows, onboarding } = data;
+
+      // If profile missing (e.g. new user), ensure it exists via normal getProfile (upsert)
+      if (!userProfile) {
+        const fallbackProfile = await storage.getProfile();
+        setProfile(fallbackProfile);
+        setIsDashboardLoading(false);
+        return;
+      }
+
       setProfile(userProfile);
       setAssets(loadedAssets);
-      setOnboardingData(onboarding);
+
+      // Prefer normalized tables; fall back to legacy onboarding_data JSONB
+      const incomeForCharts =
+        incomeRows.length > 0
+          ? incomeRows.map((i) => ({
+            incomeType: i.category,
+            source: i.type,
+            name: i.name,
+            personal: i.personal,
+            spouse: i.spouse,
+            total: i.personal + i.spouse,
+            points: i.points,
+          }))
+          : onboarding.income;
+
+      const expensesForCharts =
+        budgetExpenseRows.length > 0
+          ? budgetExpenseRows.map((e) => ({
+            expenseCategory: e.category,
+            expenseType: e.type,
+            name: e.name,
+            personal: e.personal,
+            spouse: e.spouse,
+            total: e.personal + e.spouse,
+            points: e.points,
+          }))
+          : onboarding.expenses;
+
+      const assetsForCharts =
+        loadedAssets.length > 0
+          ? loadedAssets.map((a) => ({
+            expenses: a.category,
+            expenseType: a.type,
+            name: a.name,
+            personal: a.personal,
+            spouse: a.spouse,
+            total: a.personal + a.spouse,
+            points: a.points,
+            interestRate: a.interestRate,
+          }))
+          : onboarding.assets;
+
+      const liabilitiesForCharts =
+        liabilityRows.length > 0
+          ? liabilityRows.map((l) => ({
+            expenses: l.category,
+            expenseType: l.type,
+            name: l.name,
+            personal: l.personal,
+            spouse: l.spouse,
+            total: l.personal + l.spouse,
+            points: l.points,
+            interestRate: l.interestRate,
+          }))
+          : onboarding.liabilities;
+
+      setOnboardingData({
+        income: incomeForCharts,
+        expenses: expensesForCharts,
+        assets: assetsForCharts,
+        liabilities: liabilitiesForCharts,
+      });
 
       const currentMonth = new Date().getMonth();
       const currentYear = new Date().getFullYear();
@@ -70,12 +148,62 @@ export default function Dashboard() {
       const totalMinPayments = debts.reduce((sum, debt) => sum + debt.minimumPayment, 0);
       setTotalDebt(totalDebtAmount);
       setMonthlyMinimumPayments(totalMinPayments);
+      setIsDashboardLoading(false);
     };
 
     loadData();
-    const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
+    // Poll every 5 minutes (fix #11 — was 15s causing excessive Supabase queries).
+    // Use a cancelled flag to prevent stale closures from overlapping (fix #6).
+    const POLL_MS = 5 * 60 * 1000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const safeLoad = async () => {
+      if (!cancelled) await loadData();
+    };
+
+    const schedulePoll = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(safeLoad, POLL_MS);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        safeLoad();
+        schedulePoll();
+      } else if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    schedulePoll();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  if (isDashboardLoading && !profile) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600 dark:border-gray-700 dark:border-t-blue-500" />
+        <p className="mt-4 text-gray-600 dark:text-gray-400">Loading dashboard...</p>
+      </div>
+    );
+  }
 
   if (!profile) {
     return (
@@ -135,6 +263,12 @@ export default function Dashboard() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
 
+  // Calendar ring status — no hardcoded fake data (fix #9).
+  // Returns empty status for all days; replace with real activity data when available.
+  const getDateStatus = (_day: number): { mood: boolean; earned: boolean; budget: boolean } => {
+    return { mood: false, earned: false, budget: false };
+  };
+
   const getDaysArray = () => {
     const days = [];
     // Empty cells for days before the first day of the month
@@ -181,6 +315,43 @@ export default function Dashboard() {
     return weekDays;
   };
 
+  // Ring with color portions: yellow = mood, red = earned, green = budget (each 120°)
+  const DateCircle = ({ status }: { status: { mood: boolean; earned: boolean; budget: boolean } }) => {
+    const { mood, earned, budget } = status;
+    const r = 14;
+    const circ = 2 * Math.PI * r;
+    const segment = circ / 3; // 120° each
+    const strokeWidth = 3.5;
+
+    return (
+      <svg viewBox="0 0 36 36" className="w-7 h-7 -rotate-90" style={{ overflow: "visible" }}>
+        {/* Base gray ring */}
+        <circle
+          cx="18" cy="18" r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-gray-300 dark:text-gray-500"
+        />
+        {/* Mood segment (0–120°) - yellow */}
+        {mood && (
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#eab308" strokeWidth={strokeWidth}
+            strokeDasharray={`${segment} ${circ - segment}`} strokeDashoffset={0} strokeLinecap="round" />
+        )}
+        {/* Earned segment (120–240°) - red */}
+        {earned && (
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#ef4444" strokeWidth={strokeWidth}
+            strokeDasharray={`${segment} ${circ - segment}`} strokeDashoffset={-segment} strokeLinecap="round" />
+        )}
+        {/* Budget segment (240–360°) - green */}
+        {budget && (
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#22c55e" strokeWidth={strokeWidth}
+            strokeDasharray={`${segment} ${circ - segment}`} strokeDashoffset={-segment * 2} strokeLinecap="round" />
+        )}
+      </svg>
+    );
+  };
+
   const renderMonthView = () => (
     <div className="grid grid-cols-7 gap-2">
       {dayNames.map((day) => (
@@ -190,9 +361,10 @@ export default function Dashboard() {
       ))}
       {getDaysArray().map((day, index) => {
         const date = day ? new Date(year, month, day) : null;
+        const isToday = date && date.getDate() === today.getDate() &&
+          date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
         const isSelected = date && date.getDate() === selectedDateState.getDate() &&
-          date.getMonth() === selectedDateState.getMonth() &&
-          date.getFullYear() === selectedDateState.getFullYear();
+          date.getMonth() === selectedDateState.getMonth() && date.getFullYear() === selectedDateState.getFullYear();
 
         return (
           <div
@@ -203,22 +375,29 @@ export default function Dashboard() {
                 setCurrentDate(date);
               }
             }}
-            className={`text-center py-2 rounded-full relative cursor-pointer h-[50px] w-[50px] mx-auto flex items-center justify-center transition-all ${day === null
+            className={`text-center py-2 rounded-lg relative cursor-pointer min-h-[56px] flex flex-col items-center justify-center gap-1 transition-all ${day === null
               ? ""
-              : isSelected
-                ? "bg-blue-100 dark:bg-blue-900 border-2 border-blue-600"
-                : day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-                  ? "bg-blue-50 dark:bg-gray-700 font-semibold border-2 border-transparent"
-                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border-2 border-transparent"
+              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 " + (
+                isToday && isSelected
+                  ? "ring-2 ring-blue-500 bg-blue-100/60 dark:bg-blue-900/40 dark:ring-blue-400"
+                  : isToday
+                    ? "ring-2 ring-blue-400/70 bg-blue-50/50 dark:bg-blue-900/25 dark:ring-blue-500/60 font-medium"
+                    : isSelected
+                      ? "ring-2 ring-slate-400/60 bg-slate-100/80 dark:bg-slate-700/40 dark:ring-slate-500/60"
+                      : ""
+              )
               }`}
           >
             {day && (
-              <span>{day}</span>
+              <>
+                <span className="text-sm font-medium">{day}</span>
+                <DateCircle status={getDateStatus(day)} />
+              </>
             )}
           </div>
         );
       })}
-    </div >
+    </div>
   );
 
   const renderWeekView = () => {
@@ -238,15 +417,28 @@ export default function Dashboard() {
               date.getDate() === today.getDate() &&
               date.getMonth() === today.getMonth() &&
               date.getFullYear() === today.getFullYear();
+            const isSelected =
+              date.getDate() === selectedDateState.getDate() &&
+              date.getMonth() === selectedDateState.getMonth() &&
+              date.getFullYear() === selectedDateState.getFullYear();
             return (
               <div
                 key={index}
-                className={`text-center py-4 rounded min-h-[60px] ${isToday
-                  ? "bg-blue-600 text-white font-semibold"
-                  : "bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600"
+                onClick={() => {
+                  setSelectedDateState(date);
+                  setCurrentDate(date);
+                }}
+                className={`text-center py-2 rounded-lg cursor-pointer min-h-[60px] flex flex-col items-center justify-center gap-1 transition-all text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 ${isToday && isSelected
+                    ? "ring-2 ring-blue-500 bg-blue-100/60 dark:bg-blue-900/40 dark:ring-blue-400"
+                    : isToday
+                      ? "ring-2 ring-blue-400/70 bg-blue-50/50 dark:bg-blue-900/25 dark:ring-blue-500/60 font-medium"
+                      : isSelected
+                        ? "ring-2 ring-slate-400/60 bg-slate-100/80 dark:bg-slate-700/40 dark:ring-slate-500/60"
+                        : ""
                   }`}
               >
-                <div className="text-sm font-medium">{date.getDate()}</div>
+                <span className="text-sm font-medium">{date.getDate()}</span>
+                <DateCircle status={getDateStatus(date.getDate())} />
               </div>
             );
           })}
@@ -266,11 +458,76 @@ export default function Dashboard() {
     }
   };
 
+  const firstName = profile?.name?.split(" ")[0] || "there";
+  const todayFormatted = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
     <div className="space-y-8">
-      {/* Logo */}
-      <div className="flex justify-center">
-        <h1 className="text-4xl font-bold text-gray-900 dark:text-white">OneWayOut</h1>
+      {/* Dashboard Header - sticky */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 -mt-4 pt-4 md:-mx-8 md:px-8 md:-mt-8 md:pt-8 flex flex-col gap-4 pb-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+            OneWayOut
+          </h1>
+          <div className="flex items-center gap-3">
+            <p className="hidden sm:block text-sm text-gray-500 dark:text-gray-400">{todayFormatted}</p>
+            <div className="relative flex-1 sm:flex-initial sm:min-w-[200px] md:min-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="search"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              />
+            </div>
+            <div className="relative" ref={profileDropdownRef}>
+              <button
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className="flex items-center gap-2 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                aria-expanded={profileDropdownOpen}
+                aria-haspopup="true"
+              >
+                <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                  <User className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${profileDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+              {profileDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg z-50">
+                  <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">Hi, {firstName}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{profile?.email}</p>
+                  </div>
+                  <Link
+                    href="/profile"
+                    onClick={() => setProfileDropdownOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </Link>
+                  <button
+                    onClick={() => {
+                      setProfileDropdownOpen(false);
+                      logout();
+                    }}
+                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <p className="sm:hidden text-sm text-gray-500 dark:text-gray-400">{todayFormatted}</p>
       </div>
 
       {/* Calendar */}
@@ -334,57 +591,106 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Mood, Earn, Budget Buttons */}
-      <div className="flex gap-2 mt-4">
-        <button
-          type="button"
-          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        >
-          Mood
-        </button>
-        <button
-          type="button"
-          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        >
-          Earn
-        </button>
-        <button
-          type="button"
-          className="flex-1 px-4 py-3 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        >
-          Budget
-        </button>
+      {/* Mood, Earn, Budget Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+        {/* Mood Card */}
+        <Link href="/mood" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-yellow-400 shadow-sm hover:bg-yellow-500 dark:bg-yellow-500 dark:hover:bg-yellow-600 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-white/30">
+              <Smile className="h-6 w-6" />
+            </div>
+            <div className="flex flex-col items-start text-gray-900 dark:text-gray-900">
+              <span className="text-sm font-semibold">Mood</span>
+              <span className="text-xs opacity-90">How are you feeling?</span>
+            </div>
+          </button>
+        </Link>
+
+        {/* Earn Card */}
+        <Link href="/earn" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-red-500 shadow-sm hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-white/30">
+              <DollarSign className="h-6 w-6" />
+            </div>
+            <div className="flex flex-col items-start text-gray-900 dark:text-gray-900">
+              <span className="text-sm font-semibold">Earn</span>
+              <span className="text-xs opacity-90">Grow your income</span>
+            </div>
+          </button>
+        </Link>
+
+        {/* Budget Card */}
+        <Link href="/budget" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-green-500 shadow-sm hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-white/30">
+              <Wallet className="h-6 w-6" />
+            </div>
+            <div className="flex flex-col items-start text-gray-900 dark:text-gray-900">
+              <span className="text-sm font-semibold">Budget</span>
+              <span className="text-xs opacity-90">Control your spending</span>
+            </div>
+          </button>
+        </Link>
       </div>
 
-      {/* Three Action Buttons */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Three Action Buttons (card style, softer gradients distinct from top row) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Help me Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg hover:from-orange-600 hover:to-amber-600 transition-all">
-            <HelpCircle className="h-6 w-6" />
-            <span className="text-lg font-semibold">Help me</span>
+        <Link href="/help-me" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-amber-100 to-yellow-100 shadow-sm hover:from-amber-200 hover:to-yellow-200 dark:from-amber-200 dark:to-yellow-200 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-amber-500 text-white">
+              <HelpCircle className="h-6 w-6" />
+            </div>
+            <div className="flex flex-col items-start text-gray-900">
+              <span className="text-sm font-semibold">Help me</span>
+              <span className="text-xs opacity-90">Get guidance on next steps</span>
+            </div>
           </button>
-        </div>
+        </Link>
 
         {/* Spend Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <Link href="/expenses" className="block">
-            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-lg hover:from-red-600 hover:to-rose-600 transition-all">
+        <Link href="/spend" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-rose-100 to-red-100 shadow-sm hover:from-rose-200 hover:to-red-200 dark:from-rose-200 dark:to-red-200 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-rose-500 text-white">
               <ShoppingCart className="h-6 w-6" />
-              <span className="text-lg font-semibold">Spend</span>
-            </button>
-          </Link>
-        </div>
+            </div>
+            <div className="flex flex-col items-start text-gray-900">
+              <span className="text-sm font-semibold">Spend</span>
+              <span className="text-xs opacity-90">Track your daily expenses</span>
+            </div>
+          </button>
+        </Link>
 
         {/* Review debt Button */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <Link href="/debts" className="block">
-            <button className="w-full flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-indigo-500 to-violet-500 text-white rounded-lg hover:from-indigo-600 hover:to-violet-600 transition-all">
+        <Link href="/review-debt" className="block">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-emerald-100 to-green-100 shadow-sm hover:from-emerald-200 hover:to-green-200 dark:from-emerald-200 dark:to-green-200 transition-colors"
+          >
+            <div className="p-2 rounded-full bg-emerald-500 text-white">
               <FileText className="h-6 w-6" />
-              <span className="text-lg font-semibold">Review debt</span>
-            </button>
-          </Link>
-        </div>
+            </div>
+            <div className="flex flex-col items-start text-gray-900">
+              <span className="text-sm font-semibold">Review debt</span>
+              <span className="text-xs opacity-90">See what you owe today</span>
+            </div>
+          </button>
+        </Link>
       </div>
 
       {/* Updates Heading */}
@@ -412,8 +718,9 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Total Debts</p>
+                  {/* Always use live totalDebt; profile.debts is a stale onboarding snapshot (fix #14) */}
                   <p className="text-2xl font-bold text-orange-600">
-                    ${(profile.debts || totalDebt || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${totalDebt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <TrendingDown className="h-8 w-8 text-orange-600" />
@@ -444,29 +751,22 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Points</p>
-                  <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                    {totalPoints.toLocaleString()}
-                  </p>
-                </div>
-                <Award className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
-              </div>
-            </div>
           </div>
 
           {/* Net Worth Card */}
-          <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg p-6 text-white">
+          {/* Net Worth: always use live totalDebt, not stale profile.debts snapshot (fix #14) */}
+          <div className={`rounded-lg p-6 text-white ${((profile.capital || 0) - totalDebt) >= 0
+            ? "bg-gradient-to-r from-green-500 to-emerald-600"
+            : "bg-gradient-to-r from-red-500 to-rose-600"
+            }`}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90">Net Worth</p>
                 <p className="text-3xl font-bold">
-                  ${((profile.capital || 0) - (profile.debts || totalDebt || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((profile.capital || 0) - totalDebt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
                 <p className="text-sm mt-2 opacity-80">
-                  Assets: ${(profile.capital || 0).toLocaleString()} - Debts: ${(profile.debts || totalDebt || 0).toLocaleString()}
+                  Assets: ${(profile.capital || 0).toLocaleString()} - Debts: ${totalDebt.toLocaleString()}
                 </p>
               </div>
               <Wallet className="h-12 w-12 opacity-80" />
@@ -496,7 +796,7 @@ export default function Dashboard() {
 
 
 
-      
+
 
       {/* Financial Profile Details */}
       {profile.onboardingCompleted && (
@@ -511,27 +811,31 @@ export default function Dashboard() {
                 Income Breakdown
               </h3>
               <div className="h-[300px] w-full flex items-center justify-center">
-                {onboardingData.income.length > 0 ? (
-                  <Pie
-                    data={{
-                      labels: onboardingData.income.map(i => i.incomeType),
-                      datasets: [{
-                        data: onboardingData.income.map(i => (i.personal || 0) + (i.spouse || 0)),
-                        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'],
-                        borderWidth: 0,
-                      }]
-                    }}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { position: 'bottom' }
-                      }
-                    }}
-                  />
-                ) : (
-                  <p className="text-gray-500">No income data available</p>
-                )}
+                {(() => {
+                  const chartIncome = onboardingData.income.filter((i: any) => ((i.personal ?? 0) + (i.spouse ?? 0)) > 0);
+                  return chartIncome.length > 0 ? (
+                    <Pie
+                      key={`income-${chartIncome.length}-${chartIncome.map((i: any) => (i.personal ?? 0) + (i.spouse ?? 0)).join("-")}`}
+                      data={{
+                        labels: chartIncome.map((i: any) => i.incomeType || i.category || "Income"),
+                        datasets: [{
+                          data: chartIncome.map((i: any) => (i.personal ?? 0) + (i.spouse ?? 0)),
+                          backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'],
+                          borderWidth: 0,
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { position: 'bottom' }
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="text-gray-500">No income data available</p>
+                  );
+                })()}
               </div>
             </div>
 
@@ -542,27 +846,31 @@ export default function Dashboard() {
                 Expenses Breakdown
               </h3>
               <div className="h-[300px] w-full flex items-center justify-center">
-                {onboardingData.expenses.length > 0 ? (
-                  <Pie
-                    data={{
-                      labels: onboardingData.expenses.map(e => e.expenseCategory),
-                      datasets: [{
-                        data: onboardingData.expenses.map(e => e.total || 0),
-                        backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6'],
-                        borderWidth: 0,
-                      }]
-                    }}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { position: 'bottom' }
-                      }
-                    }}
-                  />
-                ) : (
-                  <p className="text-gray-500">No expense data available</p>
-                )}
+                {(() => {
+                  const chartExpenses = onboardingData.expenses.filter((e: any) => (e.total ?? (e.personal ?? 0) + (e.spouse ?? 0)) > 0);
+                  return chartExpenses.length > 0 ? (
+                    <Pie
+                      key={`expenses-${chartExpenses.length}-${chartExpenses.map((e: any) => e.total ?? (e.personal ?? 0) + (e.spouse ?? 0)).join("-")}`}
+                      data={{
+                        labels: chartExpenses.map((e: any) => e.expenseCategory || e.category || "Expense"),
+                        datasets: [{
+                          data: chartExpenses.map((e: any) => e.total ?? (e.personal ?? 0) + (e.spouse ?? 0)),
+                          backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6'],
+                          borderWidth: 0,
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { position: 'bottom' }
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="text-gray-500">No expense data available</p>
+                  );
+                })()}
               </div>
             </div>
 
@@ -573,30 +881,34 @@ export default function Dashboard() {
                 Assets Distribution
               </h3>
               <div className="h-[300px] w-full flex items-center justify-center">
-                {onboardingData.assets.length > 0 ? (
-                  <Bar
-                    data={{
-                      labels: onboardingData.assets.map(a => a.expenses),
-                      datasets: [{
-                        label: 'Value',
-                        data: onboardingData.assets.map(a => a.total || 0),
-                        backgroundColor: '#10b981',
-                      }]
-                    }}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { display: false }
-                      },
-                      scales: {
-                        y: { beginAtZero: true }
-                      }
-                    }}
-                  />
-                ) : (
-                  <p className="text-gray-500">No asset data available</p>
-                )}
+                {(() => {
+                  const chartAssets = onboardingData.assets.filter((a: any) => (a.total ?? (a.personal ?? 0) + (a.spouse ?? 0)) > 0);
+                  return chartAssets.length > 0 ? (
+                    <Bar
+                      key={`assets-${chartAssets.length}-${chartAssets.map((a: any) => a.total ?? (a.personal ?? 0) + (a.spouse ?? 0)).join("-")}`}
+                      data={{
+                        labels: chartAssets.map((a: any) => a.expenses || a.category || "Asset"),
+                        datasets: [{
+                          label: 'Value',
+                          data: chartAssets.map((a: any) => a.total ?? (a.personal ?? 0) + (a.spouse ?? 0)),
+                          backgroundColor: '#10b981',
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { display: false }
+                        },
+                        scales: {
+                          y: { beginAtZero: true }
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="text-gray-500">No asset data available</p>
+                  );
+                })()}
               </div>
             </div>
 
@@ -607,30 +919,34 @@ export default function Dashboard() {
                 Liabilities Distribution
               </h3>
               <div className="h-[300px] w-full flex items-center justify-center">
-                {onboardingData.liabilities.length > 0 ? (
-                  <Bar
-                    data={{
-                      labels: onboardingData.liabilities.map(l => l.expenses),
-                      datasets: [{
-                        label: 'Amount',
-                        data: onboardingData.liabilities.map(l => l.total || 0),
-                        backgroundColor: '#ef4444',
-                      }]
-                    }}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { display: false }
-                      },
-                      scales: {
-                        y: { beginAtZero: true }
-                      }
-                    }}
-                  />
-                ) : (
-                  <p className="text-gray-500">No liability data available</p>
-                )}
+                {(() => {
+                  const chartLiabilities = onboardingData.liabilities.filter((l: any) => (l.total ?? (l.personal ?? 0) + (l.spouse ?? 0)) > 0);
+                  return chartLiabilities.length > 0 ? (
+                    <Bar
+                      key={`liabilities-${chartLiabilities.length}-${chartLiabilities.map((l: any) => l.total ?? (l.personal ?? 0) + (l.spouse ?? 0)).join("-")}`}
+                      data={{
+                        labels: chartLiabilities.map((l: any) => l.expenses || l.category || "Liability"),
+                        datasets: [{
+                          label: 'Amount',
+                          data: chartLiabilities.map((l: any) => l.total ?? (l.personal ?? 0) + (l.spouse ?? 0)),
+                          backgroundColor: '#ef4444',
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { display: false }
+                        },
+                        scales: {
+                          y: { beginAtZero: true }
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="text-gray-500">No liability data available</p>
+                  );
+                })()}
               </div>
             </div>
           </div>

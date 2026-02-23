@@ -1,14 +1,13 @@
-import ExpenseList from "@/components/ExpenseList";
+import ReviewDebt from "@/components/ReviewDebt";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ExpensesPage() {
+export default function ReviewDebtPage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <ExpenseList />
+        <ReviewDebt />
       </AppLayout>
     </ProtectedRoute>
   );
 }
-

@@ -29,7 +29,24 @@ export default function LiabilityView() {
     const [liabilityData, setLiabilityData] = useState<any[]>([]);
 
     useEffect(() => {
-        storage.getOnboardingData().then((d) => setLiabilityData(d.liabilities));
+        (async () => {
+            const fromTable = await storage.getLiabilities();
+            if (fromTable.length > 0) {
+                setLiabilityData(fromTable.map((l) => ({
+                    expenses: l.category,
+                    expenseType: l.type,
+                    name: l.name,
+                    personal: l.personal,
+                    spouse: l.spouse,
+                    total: l.personal + l.spouse,
+                    points: l.points,
+                    interestRate: l.interestRate,
+                })));
+            } else {
+                const d = await storage.getOnboardingData();
+                setLiabilityData(d.liabilities);
+            }
+        })();
     }, []);
 
     const totalPersonal = liabilityData.reduce((sum, item) => sum + (item.personal || 0), 0);

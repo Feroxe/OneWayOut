@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserProfile, Asset, AssetCategory, Income, IncomeCategory, RegistrationExpense, ExpenseCategory } from "@/types";
+import { UserProfile, Asset, AssetCategory, Income, IncomeCategory, RegistrationExpense, ExpenseCategory, Liability, LiabilityCategory } from "@/types";
 import { storage } from "@/lib/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChevronLeft, ChevronRight, Check, DollarSign, Plus } from "lucide-react";
@@ -53,6 +53,7 @@ interface ExpenseEntry {
 
 export default function OnboardingForm() {
   const [currentStep, setCurrentStep] = useState(1);
+  // savingsGoal initialised to 0 so canProceed() on step 6 is never permanently blocked (fix #5)
   const [formData, setFormData] = useState<Partial<UserProfile>>({
     mood: undefined,
     capital: undefined,
@@ -61,6 +62,7 @@ export default function OnboardingForm() {
     lastExpenses: undefined,
     incomeGoals: undefined,
     savingGoals: undefined,
+    savingsGoal: 0,
   });
   const [assetAmounts, setAssetAmounts] = useState<Record<string, number>>({
     "Savings": 0,
@@ -430,6 +432,11 @@ export default function OnboardingForm() {
     }
   };
 
+  /** True when the user is on the income step with zero total income (fix #15) */
+  const showZeroIncomeWarning =
+    currentStep === 2 &&
+    incomeEntries.reduce((s, e) => s + (e.personal || 0) + (e.spouse || 0), 0) === 0;
+
   const handlePrevious = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
@@ -461,18 +468,12 @@ export default function OnboardingForm() {
     };
 
     await storage.saveProfile(updatedProfile);
-    await storage.saveOnboardingData({
-      income: incomeEntries,
-      expenses: expenseEntries,
-      assets: assetEntries,
-      liabilities: liabilityEntries,
-    });
 
     // Sync onboarding income to the income table
     const incomeToSave: Income[] = incomeEntries
       .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
-      .map((e, i) => ({
-        id: `onboarding-income-${Date.now()}-${i}`,
+      .map((e) => ({
+        id: crypto.randomUUID(), // fix #4: was Date.now() — collides when multiple items map in same ms
         category: e.incomeType as IncomeCategory,
         type: (e.source === "Fixed" || e.source === "Variable" ? e.source : "Variable") as Income["type"],
         name: (e.name && e.name.trim()) || e.incomeType,
@@ -488,8 +489,8 @@ export default function OnboardingForm() {
     // Sync onboarding expense entries to the budget_expenses table
     const budgetExpensesToSave: RegistrationExpense[] = expenseEntries
       .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
-      .map((e, i) => ({
-        id: `onboarding-expense-${Date.now()}-${i}`,
+      .map((e) => ({
+        id: crypto.randomUUID(), // fix #4
         category: e.expenseCategory as ExpenseCategory,
         type: (e.expenseType === "Fixed" || e.expenseType === "Variable" ? e.expenseType : "Variable") as RegistrationExpense["type"],
         name: (e.name && e.name.trim()) || e.expenseCategory,
@@ -505,8 +506,8 @@ export default function OnboardingForm() {
     // Sync onboarding assets to the assets table (so they show on Dashboard and /assets)
     const assetsToSave: Asset[] = assetEntries
       .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
-      .map((e, i) => ({
-        id: `onboarding-asset-${Date.now()}-${i}`,
+      .map((e) => ({
+        id: crypto.randomUUID(), // fix #4
         category: e.expenses as AssetCategory,
         type: e.expenseType as "Fixed Assets" | "Current Assets",
         name: (e.name && e.name.trim()) || e.expenses,
@@ -518,6 +519,24 @@ export default function OnboardingForm() {
       }));
     if (assetsToSave.length > 0) {
       await storage.saveAssets(assetsToSave);
+    }
+
+    // Sync onboarding liabilities to the liabilities table (so they show on Dashboard and /liabilities)
+    const liabilitiesToSave: Liability[] = liabilityEntries
+      .filter((e) => e.personal > 0 || e.spouse > 0 || (e.name && e.name.trim() !== ""))
+      .map((e) => ({
+        id: crypto.randomUUID(), // fix #4
+        category: e.expenses as LiabilityCategory,
+        type: e.expenseType as Liability["type"],
+        name: (e.name && e.name.trim()) || e.expenses,
+        personal: e.personal,
+        spouse: e.spouse,
+        points: e.points,
+        interestRate: e.interestRate ?? 0,
+        editable: true,
+      }));
+    if (liabilitiesToSave.length > 0) {
+      await storage.saveLiabilities(liabilitiesToSave);
     }
 
     // If there are debts, create debt entries
@@ -546,6 +565,7 @@ export default function OnboardingForm() {
       case 1:
         return formData.mood !== undefined;
       case 2:
+        // Allow zero income (e.g. unemployed) but show warning banner (fix #15)
         return formData.lastIncome !== undefined && formData.lastIncome >= 0;
       case 3:
         return formData.lastExpenses !== undefined && formData.lastExpenses >= 0;
@@ -554,6 +574,7 @@ export default function OnboardingForm() {
       case 5:
         return formData.debts !== undefined && formData.debts >= 0;
       case 6:
+        // savingsGoal is initialised to 0 so this never blocks (fix #5)
         return formData.savingsGoal !== undefined && formData.savingsGoal >= 0;
       default:
         return false;
@@ -1130,6 +1151,16 @@ export default function OnboardingForm() {
             />
           </div>
         </div>
+
+        {/* Zero-income warning banner (fix #15) */}
+        {showZeroIncomeWarning && (
+          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg flex items-start gap-2">
+            <span className="text-amber-500 text-lg leading-none mt-0.5">⚠️</span>
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              You haven't entered any income yet. You can still continue, but your dashboard figures will be inaccurate.
+            </p>
+          </div>
+        )}
 
         {/* Step Content */}
         <div className="min-h-[300px] flex items-center justify-center py-8">

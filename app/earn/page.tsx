@@ -1,14 +1,13 @@
-import ExpenseList from "@/components/ExpenseList";
+import EarnTracker from "@/components/EarnTracker";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ExpensesPage() {
+export default function EarnPage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <ExpenseList />
+        <EarnTracker />
       </AppLayout>
     </ProtectedRoute>
   );
 }
-

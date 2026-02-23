@@ -1,18 +1,13 @@
 import ProfileForm from "@/components/ProfileForm";
-import Navigation from "@/components/Navigation";
+import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { User } from "lucide-react";
 
 export default function ProfilePage() {
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="flex flex-col md:flex-row">
-          <aside className="md:w-64 md:min-h-screen md:border-r md:border-gray-200 md:dark:border-gray-700">
-            <Navigation />
-          </aside>
-          <main className="flex-1 p-4 md:p-8 pb-20 md:pb-8">
-            <div className="max-w-2xl">
+      <AppLayout>
+        <div className="max-w-2xl">
               {/* Header */}
               <div className="mb-8">
                 <div className="flex items-center gap-3 mb-2">
@@ -25,13 +20,11 @@ export default function ProfilePage() {
               </div>
 
               {/* Form Container */}
-              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-                <ProfileForm />
-              </div>
-            </div>
-          </main>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+            <ProfileForm />
+          </div>
         </div>
-      </div>
+      </AppLayout>
     </ProtectedRoute>
   );
 }

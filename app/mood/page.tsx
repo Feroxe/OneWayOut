@@ -1,14 +1,13 @@
-import ExpenseList from "@/components/ExpenseList";
+import MoodTracker from "@/components/MoodTracker";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ExpensesPage() {
+export default function MoodPage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <ExpenseList />
+        <MoodTracker />
       </AppLayout>
     </ProtectedRoute>
   );
 }
-

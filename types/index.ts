@@ -15,6 +15,8 @@ export interface UserProfile {
   incomeGoals?: number;
   savingGoals?: number;
   onboardingCompleted?: boolean;
+  /** Redeemable points earned from tasks (Earn screen), spent on Spend screen */
+  userPoints?: number;
 }
 
 export interface DailyMood {
@@ -26,10 +28,20 @@ export interface Expense {
   id: string;
   title: string;
   amount: number;
-  category: ExpenseCategoryOld;
+  category: ExpenseCategoryOld | SpendCategory;
   date: string;
   description?: string;
 }
+
+/** Spend screen categories (7 fixed items with budget vs spent) */
+export type SpendCategory =
+  | "Grocery"
+  | "Fuel"
+  | "Electricity"
+  | "Airtime"
+  | "Water"
+  | "Rent"
+  | "Transport";
 
 export type ExpenseCategoryOld =
   | "Food & Dining"
@@ -214,4 +226,12 @@ export type ExpenseCategory =
   | "Educations"
   | "Medicine"
   | "Administration"
-  | "Vacations";
+  | "Vacations"
+  // Spend screen categories (same as SpendCategory; used in budget_expenses)
+  | "Grocery"
+  | "Fuel"
+  | "Electricity"
+  | "Airtime"
+  | "Water"
+  | "Rent"
+  | "Transport";

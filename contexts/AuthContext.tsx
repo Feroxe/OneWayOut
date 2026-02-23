@@ -11,6 +11,10 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (googleUser: { email: string; name: string; picture?: string }) => Promise<{ success: boolean; error?: string }>;
+  // Phone OTP methods (metadata optional for signup so new user gets name/email in auth)
+  sendOTP: (phone: string, metadata?: { name?: string; email?: string }) => Promise<{ success: boolean; error?: string }>;
+  verifyOTP: (phone: string, token: string) => Promise<{ success: boolean; error?: string; session?: any }>;
+  loginWithPhone: (phone: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -118,8 +122,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
-    supabase.auth.signOut();
+  // Send OTP to phone number (for signup); optional metadata so new user gets name/email when created
+  const sendOTP = async (phone: string, metadata?: { name?: string; email?: string }): Promise<{ success: boolean; error?: string }> => {
+    if (!isSupabaseConfigured()) {
+      return { success: false, error: "Supabase not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local (same folder as package.json), then restart the dev server." };
+    }
+    try {
+      // Format phone number (ensure it starts with +)
+      const formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: formattedPhone,
+        options: {
+          channel: "sms",
+          data: metadata ?? undefined,
+        },
+      });
+
+      if (error) {
+        const isRateLimit = error.message.toLowerCase().includes("too many") || error.message.includes("429");
+        return {
+          success: false,
+          error: isRateLimit
+            ? "Too many OTP requests. Please wait a few minutes and try again."
+            : error.message,
+        };
+      }
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred while sending OTP.";
+      const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("too many");
+      const isNetwork = msg.toLowerCase().includes("fetch") || msg.toLowerCase().includes("network");
+      return {
+        success: false,
+        error: isRateLimit
+          ? "Too many OTP requests. Please wait a few minutes and try again."
+          : isNetwork
+            ? "Cannot reach Supabase. Check .env.local and that your Supabase project is not paused."
+            : msg,
+      };
+    }
+  };
+
+  // Verify OTP token (for signup and login)
+  const verifyOTP = async (phone: string, token: string): Promise<{ success: boolean; error?: string; session?: any }> => {
+    if (!isSupabaseConfigured()) {
+      return { success: false, error: "Supabase not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local (same folder as package.json), then restart the dev server." };
+    }
+    try {
+      const formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token,
+        type: "sms",
+      });
+
+      if (error) {
+        return { success: false, error: error.message === "Invalid token" ? "Invalid OTP code. Please try again." : error.message };
+      }
+
+      if (data.session) {
+        setUser(toAuthSession(data.session));
+      }
+
+      return { success: true, session: data.session };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred while verifying OTP.";
+      const isNetwork = msg.toLowerCase().includes("fetch") || msg.toLowerCase().includes("network");
+      return {
+        success: false,
+        error: isNetwork
+          ? "Cannot reach Supabase. Check .env.local and that your Supabase project is not paused."
+          : msg,
+      };
+    }
+  };
+
+  // Login with phone (sends OTP)
+  const loginWithPhone = async (phone: string): Promise<{ success: boolean; error?: string }> => {
+    return sendOTP(phone);
+  };
+
+  // logout must be async so signOut() is awaited — otherwise the server token stays
+  // alive until it expires naturally if the network call hasn't completed (fix #16)
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     router.push("/login");
   };
@@ -132,6 +220,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         loginWithGoogle,
+        sendOTP,
+        verifyOTP,
+        loginWithPhone,
         logout,
         isAuthenticated: !!user,
       }}

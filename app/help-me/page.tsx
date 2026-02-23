@@ -1,14 +1,13 @@
-import ExpenseList from "@/components/ExpenseList";
+import HelpMeGuide from "@/components/HelpMeGuide";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ExpensesPage() {
+export default function HelpMePage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <ExpenseList />
+        <HelpMeGuide />
       </AppLayout>
     </ProtectedRoute>
   );
 }
-

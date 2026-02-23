@@ -29,7 +29,24 @@ export default function AssetView() {
     const [assetData, setAssetData] = useState<any[]>([]);
 
     useEffect(() => {
-        storage.getOnboardingData().then((d) => setAssetData(d.assets));
+        (async () => {
+            const fromTable = await storage.getAssets();
+            if (fromTable.length > 0) {
+                setAssetData(fromTable.map((a) => ({
+                    expenses: a.category,
+                    expenseType: a.type,
+                    name: a.name,
+                    personal: a.personal,
+                    spouse: a.spouse,
+                    total: a.personal + a.spouse,
+                    points: a.points,
+                    interestRate: a.interestRate,
+                })));
+            } else {
+                const d = await storage.getOnboardingData();
+                setAssetData(d.assets);
+            }
+        })();
     }, []);
 
     const totalPersonal = assetData.reduce((sum, item) => sum + (item.personal || 0), 0);

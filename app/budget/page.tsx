@@ -1,14 +1,13 @@
-import ExpenseList from "@/components/ExpenseList";
+import BudgetManager from "@/components/BudgetManager";
 import AppLayout from "@/components/AppLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-export default function ExpensesPage() {
+export default function BudgetPage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <ExpenseList />
+        <BudgetManager />
       </AppLayout>
     </ProtectedRoute>
   );
 }
-
